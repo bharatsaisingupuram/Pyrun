@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+
+<title>PyRun</title>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+
+<style>
+:root{
+  --bg:#0f1512;
+  --panel:#16201b;
+  --line:#24352c;
+  --text:#d9e6dd;
+  --dim:#7d9385;
+  --accent:#7fd99a;
+  --error:#e0836b;
+  --warn:#e0c36b;
+}
+
+*{
+  box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
+}
+
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* HEADER */
+
+header{
+  flex-shrink:0;
+  padding:12px 16px 8px;
+  border-bottom:1px solid var(--line);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.logo{
+  color:var(--accent);
+  font-size:16px;
+}
+
+.status{
+  color:var(--dim);
+  font-size:11px;
+}
+
+/* MAIN */
+
+main{
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+}
+
+/* EDITOR */
+
+#editor-wrap{
+  flex:1 1 35%;
+  min-height:120px;
+  padding:10px 12px 6px;
+  display:flex;
+}
+
+#editor-frame{
+  flex:1;
+  display:flex;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:9px;
+  overflow:hidden;
+}
+
+#gutter{
+  width:34px;
+  flex-shrink:0;
+  padding:10px 5px;
+  background:#121a16;
+  color:var(--dim);
+  text-align:right;
+  font-size:14px;
+  line-height:1.5;
+  overflow:hidden;
+  user-select:none;
+}
+
+#editor{
+  flex:1;
+  width:100%;
+  border:0;
+  outline:none;
+  resize:none;
+  background:transparent;
+  color:var(--text);
+  padding:10px;
+  font-family:inherit;
+  font-size:14px;
+  line-height:1.5;
+  overflow:auto;
+}
+
+/* BUTTONS */
+
+.controls{
+  flex-shrink:0;
+  padding:0 12px 7px;
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+}
+
+button{
+  font-family:inherit;
+  border:1px solid var(--line);
+  background:var(--panel);
+  color:var(--text);
+  border-radius:7px;
+  padding:9px 12px;
+}
+
+button:active{
+  opacity:.7;
+}
+
+#run{
+  width:100%;
+  background:var(--accent);
+  color:#0f1512;
+  border-color:var(--accent);
+  font-weight:bold;
+}
+
+#run:disabled{
+  opacity:.45;
+}
+
+/* TABS */
+
+#tabs{
+  flex-shrink:0;
+  display:flex;
+  overflow-x:auto;
+  border-bottom:1px solid var(--line);
+  padding:0 8px;
+}
+
+#tabs::-webkit-scrollbar{
+  display:none;
+}
+
+.tab{
+  flex-shrink:0;
+  background:transparent;
+  border:0;
+  border-bottom:2px solid transparent;
+  border-radius:0;
+  color:var(--dim);
+  font-size:11px;
+  padding:9px 9px 8px;
+}
+
+.tab.active{
+  color:var(--accent);
+  border-bottom-color:var(--accent);
+}
+
+/* PANELS */
+
+#panel-wrap{
+  flex:1 1 35%;
+  min-height:100px;
+  padding:8px 12px;
+  overflow:hidden;
+}
+
+.panel{
+  display:none;
+  height:100%;
+  background:#0a0f0c;
+  border:1px solid var(--line);
+  border-radius:8px;
+  overflow:auto;
+  padding:11px;
+  white-space:pre-wrap;
+  word-break:break-word;
+  font-size:12.5px;
+  line-height:1.55;
+}
+
+.panel.active{
+  display:block;
+}
+
+.error{
+  color:var(--error);
+}
+
+.warning{
+  color:var(--warn);
+}
+
+.success{
+  color:var(--accent);
+}
+
+.dim{
+  color:var(--dim);
+}
+
+/* TERMINAL */
+
+.terminal-input{
+  width:100%;
+  background:#0a0f0c;
+  color:var(--accent);
+  border:0;
+  outline:none;
+  font-family:inherit;
+  font-size:12.5px;
+}
+
+/* SAVED/HISTORY */
+
+.item{
+  padding:9px 0;
+  border-bottom:1px solid var(--line);
+}
+
+.item-title{
+  color:var(--text);
+}
+
+.item-time{
+  color:var(--dim);
+  font-size:10px;
+}
+
+.small-btn{
+  padding:5px 8px;
+  margin-top:6px;
+  font-size:10px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <span class="logo">pyrun</span>
+  <span class="status" id="status">loading python...</span>
+</header>
+
+<main>
+
+<!-- ================= EDITOR ================= -->
+
+<div id="editor-wrap">
+
+  <div id="editor-frame">
+
+    <div id="gutter">1</div>
+
+    <textarea id="editor"
+      spellcheck="false"
+      autocapitalize="off"
+      autocorrect="off">print("Hello from PyRun!")
+
+for i in range(5):
+    print(i * i)</textarea>
+
+  </div>
+
+</div>
+
+<!-- ================= CONTROLS ================= -->
+
+<div class="controls">
+
+  <button id="run" disabled>
+    Run ▶
+  </button>
+
+  <button id="clear">
+    Clear
+  </button>
+
+  <button id="copy">
+    Copy Code
+  </button>
+
+  <button id="save">
+    Save
+  </button>
+
+</div>
+
+<!-- ================= TABS ================= -->
+
+<div id="tabs">
+
+  <button class="tab active" data-tab="problems">
+    PROBLEMS
+  </button>
+
+  <button class="tab" data-tab="output">
+    OUTPUT
+  </button>
+
+  <button class="tab" data-tab="debug">
+    DEBUG CONSOLE
+  </button>
+
+  <button class="tab" data-tab="terminal">
+    TERMINAL
+  </button>
+
+  <button class="tab" data-tab="ports">
+    PORTS
+  </button>
+
+  <button class="tab" data-tab="saved">
+    SAVED
+  </button>
+
+  <button class="tab" data-tab="history">
+    HISTORY
+  </button>
+
+</div>
+
+<!-- ================= PANELS ================= -->
+
+<div id="panel-wrap">
+
+  <!-- PROBLEMS -->
+
+  <div class="panel active" id="problems">
+    <span class="dim">No problems detected.</span>
+  </div>
+
+  <!-- OUTPUT -->
+
+  <div class="panel" id="output">
+    <span class="dim">Nothing run yet.</span>
+  </div>
+
+  <!-- DEBUG -->
+
+  <div class="panel" id="debug">
+    <span class="dim">Debug console ready.</span>
+  </div>
+
+  <!-- TERMINAL -->
+
+  <div class="panel" id="terminal">
+
+    <div id="terminal-output">
+      <span class="dim">
+PyRun Python Terminal
+Type Python expressions below.
+      </span>
+    </div>
+
+    <br>
+
+    <span class="success">>>> </span>
+
+    <input
+      id="terminal-input"
+      class="terminal-input"
+      autocomplete="off"
+      autocorrect="off"
+      spellcheck="false"
+      placeholder="Enter Python code..."
+    >
+
+  </div>
+
+  <!-- PORTS -->
+
+  <div class="panel" id="ports">
+
+    <span class="success">Ports</span>
+
+    <br><br>
+
+    <span class="dim">
+PyRun runs Python completely inside your browser using Pyodide.
+
+There is no backend server.
+
+Therefore normal server ports are not opened or forwarded.
+
+Example:
+
+HTTP server ❌
+localhost port ❌
+Backend server ❌
+
+Browser Python execution ✓
+Pyodide ✓
+      </span>
+
+  </div>
+
+  <!-- SAVED -->
+
+  <div class="panel" id="saved">
+
+    <span class="dim">
+No saved programs.
+    </span>
+
+  </div>
+
+  <!-- HISTORY -->
+
+  <div class="panel" id="history">
+
+    <span class="dim">
+No history yet.
+    </span>
+
+  </div>
+
+</div>
+
+</main>
+
+<script>
+
+/* =====================================================
+   ELEMENTS
+===================================================== */
+
+const statusEl =
+  document.getElementById("status");
+
+const runBtn =
+  document.getElementById("run");
+
+const editor =
+  document.getElementById("editor");
+
+const gutter =
+  document.getElementById("gutter");
+
+const output =
+  document.getElementById("output");
+
+const problems =
+  document.getElementById("problems");
+
+const debug =
+  document.getElementById("debug");
+
+const terminalOutput =
+  document.getElementById("terminal-output");
+
+const terminalInput =
+  document.getElementById("terminal-input");
+
+const savedPanel =
+  document.getElementById("saved");
+
+const historyPanel =
+  document.getElementById("history");
+
+
+/* =====================================================
+   PYTHON
+===================================================== */
+
+let pyodide = null;
+
+
+/* =====================================================
+   DEBUG LOGGER
+===================================================== */
+
+function debugLog(message){
+
+  const time =
+    new Date().toLocaleTimeString();
+
+  debug.innerHTML +=
+    "\n[" +
+    time +
+    "] " +
+    escapeHTML(message);
+
+}
+
+
+/* =====================================================
+   ESCAPE HTML
+===================================================== */
+
+function escapeHTML(text){
+
+  return String(text)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
+
+}
+
+
+/* =====================================================
+   LOAD PYTHON
+===================================================== */
+
+async function startPython(){
+
+  try{
+
+    statusEl.textContent =
+      "loading python...";
+
+    debug.innerHTML =
+      '<span class="dim">Starting Pyodide...</span>';
+
+    debugLog("Downloading Python runtime...");
+
+
+    pyodide =
+      await loadPyodide({
+
+        indexURL:
+          "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/"
+
+      });
+
+
+    statusEl.textContent =
+      "python ready ✓";
+
+    runBtn.disabled =
+      false;
+
+
+    output.innerHTML =
+      '<span class="success">' +
+      'Python is ready ✓\n\n' +
+      'Press Run to execute your program.' +
+      '</span>';
+
+
+    debugLog(
+      "Python initialized successfully."
+    );
+
+  }
+
+  catch(error){
+
+    statusEl.textContent =
+      "python failed ✕";
+
+    runBtn.disabled =
+      true;
+
+    output.innerHTML =
+      '<span class="error">' +
+      escapeHTML(error.toString()) +
+      '</span>';
+
+    debugLog(
+      "Python initialization failed: " +
+      error
+    );
+
+  }
+
+}
+
+
+/* START */
+
+startPython();
+
+
+/* =====================================================
+   LINE NUMBERS
+===================================================== */
+
+function updateLines(){
+
+  const count =
+    editor.value.split("\n").length;
+
+  let text = "";
+
+  for(
+    let i = 1;
+    i <= count;
+    i++
+  ){
+
+    text += i + "\n";
+
+  }
+
+  gutter.textContent =
+    text;
+
+}
+
+updateLines();
+
+
+editor.addEventListener(
+  "input",
+  updateLines
+);
+
+
+editor.addEventListener(
+  "scroll",
+  function(){
+
+    gutter.scrollTop =
+      editor.scrollTop;
+
+  }
+);
+
+
+/* =====================================================
+   PROBLEM CHECK
+===================================================== */
+
+async function checkProblems(){
+
+  if(!pyodide){
+
+    problems.innerHTML =
+      '<span class="warning">' +
+      'Python is still loading...' +
+      '</span>';
+
+    return;
+
+  }
+
+
+  const code =
+    editor.value;
+
+
+  if(!code.trim()){
+
+    problems.innerHTML =
+      '<span class="warning">' +
+      'Editor is empty.' +
+      '</span>';
+
+    return;
+
+  }
+
+
+  try{
+
+    pyodide.globals.set(
+      "pyrun_code",
+      code
+    );
+
+
+    await pyodide.runPythonAsync(
+      "compile(pyrun_code, '<editor>', 'exec')"
+    );
+
+
+    problems.innerHTML =
+      '<span class="success">' +
+      '✓ No problems detected.' +
+      '</span>';
+
+  }
+
+  catch(error){
+
+    problems.innerHTML =
+      '<span class="error">' +
+      '⚠ Python Error\n\n' +
+      escapeHTML(error.toString()) +
+      '</span>';
+
+  }
+
+}
+
+
+/* =====================================================
+   RUN PROGRAM
+===================================================== */
+
+runBtn.addEventListener(
+  "click",
+  async function(){
+
+    if(!pyodide){
+
+      output.innerHTML =
+        '<span class="warning">' +
+        'Python is still loading...' +
+        '</span>';
+
+      return;
+
+    }
+
+
+    const code =
+      editor.value;
+
+
+    if(!code.trim()){
+
+      output.innerHTML =
+        '<span class="warning">' +
+        'Please enter Python code.' +
+        '</span>';
+
+      return;
+
+    }
+
+
+    runBtn.disabled =
+      true;
+
+    output.textContent =
+      "Running...";
+
+
+    debugLog(
+      "Running program..."
+    );
+
+
+    let result = "";
+
+
+    try{
+
+      pyodide.setStdout({
+
+        batched(text){
+
+          result += text;
+
+        }
+
+      });
+
+
+      pyodide.setStderr({
+
+        batched(text){
+
+          result += text;
+
+        }
+
+      });
+
+
+      pyodide.globals.set(
+        "pyrun_code",
+        code
+      );
+
+
+      const returned =
+        await pyodide.runPythonAsync(
+          "exec(pyrun_code)"
+        );
+
+
+      if(
+        returned !== undefined &&
+        returned !== null
+      ){
+
+        result +=
+          String(returned);
+
+      }
+
+
+      if(!result){
+
+        result =
+          "Program executed successfully ✓";
+
+      }
+
+
+      output.textContent =
+        result;
+
+
+      problems.innerHTML =
+        '<span class="success">' +
+        '✓ No problems detected.' +
+        '</span>';
+
+
+      debugLog(
+        "Program completed successfully."
+      );
+
+
+      addHistory(
+        code,
+        result
+      );
+
+    }
+
+    catch(error){
+
+      output.innerHTML =
+        '<span class="error">' +
+        escapeHTML(
+          error.toString()
+        ) +
+        '</span>';
+
+
+      problems.innerHTML =
+        '<span class="error">' +
+        '⚠ Error detected\n\n' +
+        escapeHTML(
+          error.toString()
+        ) +
+        '</span>';
+
+
+      debugLog(
+        "Program failed."
+      );
+
+
+      addHistory(
+        code,
+        error.toString()
+      );
+
+    }
+
+
+    finally{
+
+      runBtn.disabled =
+        false;
+
+    }
+
+  }
+);
+
+
+/* =====================================================
+   CHECK PROBLEMS WHEN TYPING
+===================================================== */
+
+let problemTimer;
+
+editor.addEventListener(
+  "input",
+  function(){
+
+    clearTimeout(problemTimer);
+
+    problemTimer =
+      setTimeout(
+        checkProblems,
+        700
+      );
+
+  }
+);
+
+
+/* =====================================================
+   CLEAR
+===================================================== */
+
+document
+.getElementById("clear")
+.addEventListener(
+  "click",
+  function(){
+
+    editor.value = "";
+
+    updateLines();
+
+    output.innerHTML =
+      '<span class="dim">' +
+      'Editor cleared.' +
+      '</span>';
+
+    problems.innerHTML =
+      '<span class="dim">' +
+      'No problems detected.' +
+      '</span>';
+
+  }
+);
+
+
+/* =====================================================
+   COPY
+===================================================== */
+
+document
+.getElementById("copy")
+.addEventListener(
+  "click",
+  async function(){
+
+    try{
+
+      await navigator.clipboard.writeText(
+        editor.value
+      );
+
+      this.textContent =
+        "Copied ✓";
+
+      setTimeout(
+        () => this.textContent =
+          "Copy Code",
+        1200
+      );
+
+    }
+
+    catch(error){
+
+      alert(
+        "Copy failed."
+      );
+
+    }
+
+  }
+);
+
+
+/* =====================================================
+   TABS
+===================================================== */
+
+document
+.querySelectorAll(".tab")
+.forEach(
+  function(tab){
+
+    tab.addEventListener(
+      "click",
+      function(){
+
+        document
+        .querySelectorAll(".tab")
+        .forEach(
+          t =>
+          t.classList.remove(
+            "active"
+          )
+        );
+
+
+        this.classList.add(
+          "active"
+        );
+
+
+        document
+        .querySelectorAll(".panel")
+        .forEach(
+          panel =>
+          panel.classList.remove(
+            "active"
+          )
+        );
+
+
+        document
+        .getElementById(
+          this.dataset.tab
+        )
+        .classList.add(
+          "active"
+        );
+
+      }
+
+    );
+
+  }
+);
+
+
+/* =====================================================
+   TERMINAL
+===================================================== */
+
+terminalInput.addEventListener(
+  "keydown",
+  async function(event){
+
+    if(event.key !== "Enter")
+      return;
+
+
+    const code =
+      terminalInput.value.trim();
+
+
+    if(!code)
+      return;
+
+
+    terminalInput.value = "";
+
+
+    terminalOutput.innerHTML +=
+      "\n\n<span class='success'>&gt;&gt;&gt; </span>" +
+      escapeHTML(code);
+
+
+    if(!pyodide){
+
+      terminalOutput.innerHTML +=
+        "\n<span class='warning'>" +
+        "Python is still loading..." +
+        "</span>";
+
+      return;
+
+    }
+
+
+    try{
+
+      pyodide.setStdout({
+
+        batched(text){
+
+          terminalOutput.innerHTML +=
+            "\n" +
+            escapeHTML(text);
+
+        }
+
+      });
+
+
+      pyodide.setStderr({
+
+        batched(text){
+
+          terminalOutput.innerHTML +=
+            "\n" +
+            escapeHTML(text);
+
+        }
+
+      });
+
+
+      pyodide.globals.set(
+        "terminal_code",
+        code
+      );
+
+
+      const result =
+        await pyodide.runPythonAsync(
+          "eval(terminal_code)"
+        );
+
+
+      if(
+        result !== undefined &&
+        result !== null
+      ){
+
+        terminalOutput.innerHTML +=
+          "\n" +
+          escapeHTML(
+            String(result)
+          );
+
+      }
+
+    }
+
+    catch(error){
+
+      terminalOutput.innerHTML +=
+        "\n<span class='error'>" +
+        escapeHTML(
+          error.toString()
+        ) +
+        "</span>";
+
+    }
+
+  }
+);
+
+
+/* =====================================================
+   SAVE
+===================================================== */
+
+document
+.getElementById("save")
+.addEventListener(
+  "click",
+  function(){
+
+    const code =
+      editor.value.trim();
+
+
+    if(!code){
+
+      alert(
+        "Write some code first."
+      );
+
+      return;
+
+    }
+
+
+    const name =
+      prompt(
+        "Program name:",
+        "My Python Program"
+      );
+
+
+    if(!name)
+      return;
+
+
+    let saved =
+      getSaved();
+
+
+    saved.unshift({
+
+      name:name,
+
+      code:code,
+
+      time:
+        new Date().toLocaleString()
+
+    });
+
+
+    localStorage.setItem(
+      "pyrun_saved",
+      JSON.stringify(saved)
+    );
+
+
+    displaySaved();
+
+  }
+);
+
+
+/* =====================================================
+   SAVED PROGRAMS
+===================================================== */
+
+function getSaved(){
+
+  try{
+
+    return JSON.parse(
+      localStorage.getItem(
+        "pyrun_saved"
+      )
+    ) || [];
+
+  }
+
+  catch(error){
+
+    return [];
+
+  }
+
+}
+
+
+function displaySaved(){
+
+  const saved =
+    getSaved();
+
+
+  if(!saved.length){
+
+    savedPanel.innerHTML =
+      '<span class="dim">' +
+      'No saved programs.' +
+      '</span>';
+
+    return;
+
+  }
+
+
+  savedPanel.innerHTML = "";
+
+
+  saved.forEach(
+    function(item,index){
+
+      const div =
+        document.createElement(
+          "div"
+        );
+
+
+      div.className =
+        "item";
+
+
+      div.innerHTML =
+
+        '<div class="item-title">' +
+        escapeHTML(item.name) +
+        '</div>' +
+
+        '<div class="item-time">' +
+        escapeHTML(item.time) +
+        '</div>' +
+
+        '<button class="small-btn">' +
+        'Load' +
+        '</button> ' +
+
+        '<button class="small-btn">' +
+        'Delete' +
+        '</button>';
+
+
+      const buttons =
+        div.querySelectorAll(
+          "button"
+        );
+
+
+      buttons[0].onclick =
+        function(){
+
+          editor.value =
+            item.code;
+
+          updateLines();
+
+          output.textContent =
+            "Program loaded.";
+
+        };
+
+
+      buttons[1].onclick =
+        function(){
+
+          let arr =
+            getSaved();
+
+          arr.splice(
+            index,
+            1
+          );
+
+          localStorage.setItem(
+            "pyrun_saved",
+            JSON.stringify(arr)
+          );
+
+          displaySaved();
+
+        };
+
+
+      savedPanel.appendChild(
+        div
+      );
+
+    }
+  );
+
+}
+
+
+displaySaved();
+
+
+/* =====================================================
+   HISTORY
+===================================================== */
+
+function getHistory(){
+
+  try{
+
+    return JSON.parse(
+      localStorage.getItem(
+        "pyrun_history"
+      )
+    ) || [];
+
+  }
+
+  catch(error){
+
+    return [];
+
+  }
+
+}
+
+
+function addHistory(
+  code,
+  result
+){
+
+  let history =
+    getHistory();
+
+
+  history.unshift({
+
+    code:code,
+
+    result:result,
+
+    time:
+      new Date().toLocaleString()
+
+  });
+
+
+  history =
+    history.slice(
+      0,
+      20
+    );
+
+
+  localStorage.setItem(
+    "pyrun_history",
+    JSON.stringify(
+      history
+    )
+  );
+
+
+  displayHistory();
+
+}
+
+
+function displayHistory(){
+
+  const history =
+    getHistory();
+
+
+  if(!history.length){
+
+    historyPanel.innerHTML =
+      '<span class="dim">' +
+      'No history yet.' +
+      '</span>';
+
+    return;
+
+  }
+
+
+  historyPanel.innerHTML = "";
+
+
+  history.forEach(
+    function(item,index){
+
+      const div =
+        document.createElement(
+          "div"
+        );
+
+
+      div.className =
+        "item";
+
+
+      div.innerHTML =
+
+        '<div class="item-title">' +
+        'Run #' +
+        (history.length-index) +
+        '</div>' +
+
+        '<div class="item-time">' +
+        escapeHTML(item.time) 
